@@ -1,16 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient as createServerSupabase } from "@/lib/supabase-server";
+import { createClient as createServerSupabase, getUser } from "@/lib/supabase-server";
 import { signOut } from "@/lib/auth-actions";
 
 export default async function AccountPage() {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getUser();
   if (!user) redirect("/login");
 
+  const supabase = await createServerSupabase();
   const { data: favorites } = await supabase
     .from("favorites")
     .select("folder_id, folders(id,name,is_locked,links(count))")

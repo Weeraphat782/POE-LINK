@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import { createClient as createServerSupabase } from "@/lib/supabase-server";
+import { createClient as createServerSupabase, getUser } from "@/lib/supabase-server";
 import { unlockCookieName } from "@/lib/unlock-cookie";
 
 // Also returns true for folders that aren't locked at all, so unlocked tabs
@@ -23,10 +23,7 @@ export async function createFolder(formData: FormData) {
   const password = String(formData.get("password") ?? "").trim();
   if (!name) return;
 
-  const supabaseAuthed = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabaseAuthed.auth.getUser();
+  const user = await getUser();
 
   const { data: folder } = await supabase
     .from("folders")
@@ -116,28 +113,26 @@ export async function deleteLink(formData: FormData) {
 
 export async function toggleFavorite(formData: FormData) {
   const folderId = String(formData.get("folderId"));
-  const supabaseAuthed = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabaseAuthed.auth.getUser();
+  // The page already knows whether this folder is favorited when it renders
+  // the star button, so trust that instead of re-querying it here — cuts
+  // this action from 3 round trips (select, then insert/delete) to 1.
+  const wasFavorite = formData.get("wasFavorite") === "1";
+  const user = await getUser();
   if (!user) redirect("/login");
 
-  const { data: existing } = await supabaseAuthed
-    .from("favorites")
-    .select("folder_id")
-    .eq("user_id", user.id)
-    .eq("folder_id", folderId)
-    .maybeSingle();
-
-  if (existing) {
+  const supabaseAuthed = await createServerSupabase();
+  if (wasFavorite) {
     await supabaseAuthed
       .from("favorites")
       .delete()
       .eq("user_id", user.id)
       .eq("folder_id", folderId);
   } else {
-    await supabaseAuthed.from("favorites").insert({ user_id: user.id, folder_id: folderId });
+    await supabaseAuthed
+      .from("favorites")
+      .upsert({ user_id: user.id, folder_id: folderId }, { onConflict: "user_id,folder_id" });
   }
   revalidatePath("/");
   revalidatePath("/account");
+  revalidatePath(`/folder/${folderId}`);
 }

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
@@ -25,3 +26,14 @@ export async function createClient() {
     }
   );
 }
+
+// getUser() hits Supabase's Auth server over the network every call. Cache
+// it per request so layout + page + folder page share one call instead of
+// each paying that round trip separately.
+export const getUser = cache(async () => {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
+});

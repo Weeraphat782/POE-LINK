@@ -2,7 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { createClient as createServerSupabase } from "@/lib/supabase-server";
+import { createClient as createServerSupabase, getUser } from "@/lib/supabase-server";
 import { createLink, deleteLink, unlockFolder, toggleFavorite } from "@/lib/actions";
 import { unlockCookieName } from "@/lib/unlock-cookie";
 import type { Link as PoeLink } from "@/lib/types";
@@ -17,20 +17,16 @@ export default async function FolderPage({
   const { id } = await params;
   const { error: unlockError } = await searchParams;
 
-  const { data: folder } = await supabase
-    .from("folders")
-    .select("id,name,is_locked,profiles(email)")
-    .eq("id", id)
-    .single();
+  const [{ data: folder }, user] = await Promise.all([
+    supabase.from("folders").select("id,name,is_locked,profiles(email)").eq("id", id).single(),
+    getUser(),
+  ]);
 
   if (!folder) notFound();
 
-  const authedSupabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await authedSupabase.auth.getUser();
   let isFavorite = false;
   if (user) {
+    const authedSupabase = await createServerSupabase();
     const { data: favorite } = await authedSupabase
       .from("favorites")
       .select("folder_id")
@@ -48,17 +44,24 @@ export default async function FolderPage({
     const savedPassword = cookieStore.get(unlockCookieName(id))?.value;
     unlocked = false;
     if (savedPassword) {
-      const { data: ok } = await supabase.rpc("unlock_folder", {
+      // get_folder_links() already re-checks the password internally, so try
+      // it first and only make the extra unlock_folder round trip if the
+      // result is ambiguous (empty could mean "wrong password" or "correct
+      // password, empty folder").
+      const { data } = await supabase.rpc("get_folder_links", {
         p_folder_id: id,
         p_password: savedPassword,
       });
-      if (ok) {
+      const rows = (data as PoeLink[] | null) ?? [];
+      if (rows.length > 0) {
         unlocked = true;
-        const { data } = await supabase.rpc("get_folder_links", {
+        links = rows;
+      } else {
+        const { data: ok } = await supabase.rpc("unlock_folder", {
           p_folder_id: id,
           p_password: savedPassword,
         });
-        links = (data as PoeLink[] | null) ?? [];
+        unlocked = !!ok;
       }
     }
   } else {
@@ -78,6 +81,7 @@ export default async function FolderPage({
         </Link>
         <form action={toggleFavorite}>
           <input type="hidden" name="folderId" value={id} />
+          <input type="hidden" name="wasFavorite" value={isFavorite ? "1" : ""} />
           <button
             type="submit"
             aria-label={isFavorite ? "Unstar tab" : "Star tab"}

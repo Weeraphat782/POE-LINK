@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { createClient as createServerSupabase } from "@/lib/supabase-server";
+import { createClient as createServerSupabase, getUser } from "@/lib/supabase-server";
 import {
   createFolder,
   updateFolder,
@@ -16,18 +16,17 @@ export default async function HomePage({
 }) {
   const { error: actionError } = await searchParams;
 
-  const { data: folders, error } = await supabase
-    .from("folders")
-    .select("id,name,is_locked,created_at,links(count),profiles(email)")
-    .order("created_at", { ascending: true });
-
-  const authedSupabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await authedSupabase.auth.getUser();
+  const [{ data: folders, error }, user] = await Promise.all([
+    supabase
+      .from("folders")
+      .select("id,name,is_locked,created_at,links(count),profiles(email)")
+      .order("created_at", { ascending: true }),
+    getUser(),
+  ]);
 
   let favoriteIds = new Set<string>();
   if (user) {
+    const authedSupabase = await createServerSupabase();
     const { data: favorites } = await authedSupabase
       .from("favorites")
       .select("folder_id")
@@ -73,6 +72,7 @@ export default async function HomePage({
               <div className="absolute right-2 top-2 flex items-center gap-2">
                 <form action={toggleFavorite}>
                   <input type="hidden" name="folderId" value={folder.id} />
+                  <input type="hidden" name="wasFavorite" value={isFavorite ? "1" : ""} />
                   <button
                     type="submit"
                     aria-label={isFavorite ? "Unstar tab" : "Star tab"}

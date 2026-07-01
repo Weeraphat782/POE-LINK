@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
-import { createClient as createServerSupabase } from "@/lib/supabase-server";
+import { getUser } from "@/lib/supabase-server";
 import { CloseDetailsOnOutsideClick } from "@/app/close-details-on-outside-click";
 import "./globals.css";
 
@@ -25,10 +25,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const supabase = await createServerSupabase();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
 
   return (
     <html
